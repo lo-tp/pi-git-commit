@@ -1026,4 +1026,77 @@ EOF`;
       expect(result.content[0].text).toContain("empty");
     });
   });
+
+  describe("git_commit executes directly", () => {
+    let tempDir: string;
+    let tool: any;
+    let fakePi: any;
+    let commitCommand: any;
+    let execCalls: string[][];
+
+    const runGit = (args: string[]) => {
+      const result = spawnSync("git", args, { cwd: tempDir, encoding: "utf-8" });
+      return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    };
+
+    const startCommitFlow = async () => {
+      const ctx = { hasUI: true, ui: { notify: vi.fn(), setWorkingMessage: vi.fn() }, waitForIdle: vi.fn() };
+      await commitCommand.handler("", ctx);
+    };
+
+    beforeEach(async () => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-git-commit-review-"));
+      runGit(["init", "-b", "main"]);
+      runGit(["config", "user.name", "Test User"]);
+      runGit(["config", "user.email", "test@example.com"]);
+      runGit(["config", "commit.gpgsign", "false"]);
+
+      vi.resetModules();
+      const mod = await import("../index.js");
+      execCalls = [];
+      fakePi = {
+        on: vi.fn(),
+        registerTool: vi.fn((registered: any) => {
+          tool = registered;
+        }),
+        registerMessageRenderer: vi.fn(),
+        registerCommand: vi.fn((name: string, cmd: any) => {
+          if (name === "commit") commitCommand = cmd;
+        }),
+        getActiveTools: vi.fn(() => []),
+        setActiveTools: vi.fn(),
+        sendUserMessage: vi.fn(),
+        sendMessage: vi.fn(),
+        exec: (command: string, args: string[], opts?: { cwd?: string }) => {
+          execCalls.push(args);
+          const result = spawnSync(command, args, { cwd: opts?.cwd ?? tempDir, encoding: "utf-8" });
+          return { code: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+        },
+      };
+      mod.default(fakePi);
+    });
+
+    afterEach(() => {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it("commits directly without a UI dialog", async () => {
+      fs.writeFileSync(path.join(tempDir, "a.txt"), "hello");
+      await startCommitFlow();
+      const ctx = { hasUI: true, ui: {} };
+      const result = await tool.execute("call-1", { type: "FIX", message: "add a.txt" }, undefined, vi.fn(), ctx);
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0].text).toContain("FIX: add a.txt");
+      expect(runGit(["log", "-1", "--format=%s"]).stdout.trim()).toBe("FIX: add a.txt");
+    });
+
+    it("commits directly when there is no UI", async () => {
+      fs.writeFileSync(path.join(tempDir, "d.txt"), "hello");
+      await startCommitFlow();
+      const ctx = { hasUI: false, ui: {} };
+      const result = await tool.execute("call-1", { type: "FIX", message: "add d.txt" }, undefined, vi.fn(), ctx);
+      expect(result.isError).toBeFalsy();
+      expect(runGit(["log", "-1", "--format=%s"]).stdout.trim()).toBe("FIX: add d.txt");
+    });
+  });
 });

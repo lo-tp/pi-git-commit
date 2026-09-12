@@ -246,7 +246,7 @@ export default function (pi: ExtensionAPI) {
         description: "Commit message (imperative mood). Multi-line allowed for detailed changes.",
       }),
     }),
-    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       if (!commitFlowActive) {
         return toolError("No commit flow is active. Ask the user to run /commit first.");
       }
@@ -258,6 +258,7 @@ export default function (pi: ExtensionAPI) {
           return toolError("Commit message must not be empty.");
         }
         const fullMessage = `${type}: ${description}`;
+
         const addResult = await pi.exec("git", ["add", "."], { signal });
         if (addResult.code !== 0) {
           return toolError(`Staging failed: ${addResult.stderr}`);
@@ -347,7 +348,7 @@ export default function (pi: ExtensionAPI) {
         if (!commitFlowActive) return;
         const stat = statResult.code === 0 ? statResult.stdout.trim().split("\n").pop() ?? "" : "";
 
-        const prompt = `DO NOT use bash for git. Use ONLY the \`git_commit\` tool.\n\nReview staged changes:\n\`\`\`diff\n${diff}\`\`\`\n\nUse \`git_commit\` tool with:\n- type: FIX, IMPROVE, or NEW\n- message: brief description (imperative mood)`;
+        const prompt = `DO NOT use bash for git. Use ONLY the \`git_commit\` tool.\n\nReview staged changes:\n\`\`\`diff\n${diff}\`\`\`\n\nPropose a commit message (type: FIX/IMPROVE/NEW, imperative mood) and show it to the user. Ask if they want to refine it. If they do, revise the message and show it again. Repeat until the user approves. Only then call \`git_commit\` with the approved message.`;
         if (!commitFlowActive) return;
         pi.sendMessage(
           { customType: DIFF_CUSTOM_TYPE, content: prompt, display: true, details: { diff, stat } },

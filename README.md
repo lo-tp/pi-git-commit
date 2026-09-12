@@ -5,8 +5,8 @@ Keeps mutative git operations out of the agent's bash and provides a safe, revie
 ## What you get
 
 - **Bash git guard.** Mutative git commands are blocked in the agent's bash tool — `add`, `stage`, `commit`, `push`, `pull`, `merge`, `rebase`, `reset`, `clean`, `rm`, `restore`, `switch`, `cherry-pick`, `revert`, `mv`, `init`, `clone`, index/object plumbing (`read-tree`, `checkout-index`, `merge-file`, `prune-packed`), plus mutative forms of `branch` (including creation, `-u`, `-f`, `-c`/`-C`/`--copy`, `-D`/`-M`, `--force`, `-t`/`--track`), `tag` (including creation), `checkout` (including whole-tree restores like `checkout -- .`), `stash`, `submodule`, `worktree`, `config`, `remote`, `apply`, `notes`, `update-ref`, `gc` and more. Read-only commands (`status`, `diff`, `log`, `fetch`, `branch`, `tag`, `stash list`, ...) stay allowed.
-- **`git_commit` tool.** The agent stages everything and commits with a `FIX` / `IMPROVE` / `NEW` type prefix. The tool stays active for the whole session but refuses to run until `/commit` opens the flow, and it refuses again once the commit succeeds. The active tool set never changes mid-session, so the provider prompt cache is never invalidated.
-- **`/commit` command.** Waits for queued messages to finish, stages all changes, shows a collapsed summary of the staged diff (a `git diff --stat` line; press `ctrl+o` to expand the full diff), unlocks the `git_commit` tool, and asks the agent to review the changes and commit via `git_commit` — never via bash. Run `/stop-commit` at any point to abort the flow.
+- **`git_commit` tool.** The agent stages everything and commits with a `FIX` / `IMPROVE` / `NEW` type prefix. The tool stays active for the whole session but refuses to run until `/commit` opens the flow, and it refuses again once the commit succeeds. Before committing, you are prompted to review, edit, or cancel the final message (interactive/RPC modes); the commit is only made once you confirm it. The active tool set never changes mid-session, so the provider prompt cache is never invalidated.
+- **`/commit` command.** Waits for queued messages to finish, stages all changes, shows a collapsed summary of the staged diff (a `git diff --stat` line; press `ctrl+o` to expand the full diff), unlocks the `git_commit` tool, and asks the agent to review the changes and commit via `git_commit` — never via bash. Right before the commit you are prompted to review/adjust (or cancel) the message. Run `/stop-commit` at any point to abort the flow.
 - **`/stop-commit` command.** Aborts a pending commit flow: closes the flow so `git_commit` refuses to commit, and cancels a `/commit` that is still waiting for queued messages, so no commit is made.
 - **`/toggle-allow-git` command.** Temporarily allows mutative git commands in bash for the current session. The guard re-arms on the next session.
 
@@ -20,7 +20,7 @@ Keeps mutative git operations out of the agent's bash and provides a safe, revie
 
 2. The extension stages the working tree and shows a collapsed summary of the staged diff — press `ctrl+o` to expand it. The full diff is handed to the agent with instructions to review it.
 
-3. The agent commits using the `git_commit` tool:
+3. The agent proposes a commit via the `git_commit` tool:
 
 ```json
 {
@@ -29,9 +29,11 @@ Keeps mutative git operations out of the agent's bash and provides a safe, revie
 }
 ```
 
-4. Changed your mind? Run `/stop-commit` to abort the flow before the agent commits.
+4. You're shown the final message (`FIX: Correct the off-by-one in the retry loop`) in an editor. Accept it, edit it, or cancel — the commit is made only with the message you confirm. (This step is skipped in print/JSON modes.)
 
-5. If you need to run mutative git yourself, allow it for the session:
+5. Changed your mind before the prompt? Run `/stop-commit` to abort the flow so the agent never commits.
+
+6. If you need to run mutative git yourself, allow it for the session:
 
 ```text
 /toggle-allow-git
@@ -57,6 +59,8 @@ pi install /path/to/pi-git-commit
 | `message` | Commit message in imperative mood, without the type prefix (it is added automatically). A leading type word matching the chosen type is stripped (with `:`, whitespace, or `-`/`—` separators, any casing, repeats included) so the type is never duplicated. Multi-line allowed for detailed changes. |
 
 The tool runs `git add .` followed by `git commit -m "<TYPE>: <message>"` and reports staging or commit failures as tool errors. A leading type word in the message is stripped whenever it repeats the chosen type — with `:`, whitespace, or `-`/`—` separators, at any casing, repeated prefixes included — so the type never ends up duplicated: `FIX: Fix: ...`, `FIX: Fix ...`, and `fix - ...` all become `FIX: ...`. The flow gate is enforced in the tool itself: `git_commit` is listed for the whole session but refuses to run until you run `/commit`, and it refuses again once the commit succeeds, so the agent cannot commit at arbitrary points in the conversation. Because the active tool set never changes, pi's system prompt stays identical for the whole session and the provider's prompt cache is never invalidated (changing the active tool set rebuilds the system prompt and drops the cached prefix). If a commit fails, the flow stays open and the agent can retry immediately without re-running `/commit`.
+
+Before the commit, the tool adds a review step: in interactive and RPC modes it opens a multi-line editor prefilled with the final `<TYPE>: <message>` and waits for you to confirm. Accepting commits that message, editing it commits your version, and dismissing the editor (or leaving it empty) aborts the commit with nothing staged or committed. In print/JSON modes (no UI) the step is skipped and the agent's message is committed as-is.
 
 ## The bash guard
 
